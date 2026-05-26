@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import date
-import scipy.stats as stats
 from scipy.optimize import minimize
 import requests
 
@@ -59,77 +58,18 @@ def minimizar_volatilidad(weights, ret_anuales, cov_matrix):
     return calcular_metricas_cartera(weights, ret_anuales, cov_matrix)[1]
 
 # --- BLOQUE CENTRAL DE PROCESAMIENTO DE DATOS ---
-try:
-    if fecha_inicio >= fecha_fin:
-        st.warning("⚠️ **Error en el rango:** La fecha de inicio no puede ser posterior o igual a la de fin.")
-        st.stop()
+if fecha_inicio >= fecha_fin:
+    st.warning("⚠️ **Error en el rango:** La fecha de inicio no puede ser posterior o igual a la de fin.")
+    st.stop()
 
-    # Descarga limpia de Yahoo Finance
-    datos_raw = yf.download(activos, start=fecha_inicio, end=fecha_fin)
-    if datos_raw.empty or 'Close' not in datos_raw:
-        st.warning("⚠️ No se encontraron precios de cierre para los tickers ingresados.")
-        st.stop()
-    
-    df_close = datos_raw['Close']
-    
-    # Blindaje contra MultiIndex (Evita el error 'Columns must be same length as key')
-    if isinstance(df_close, pd.DataFrame):
-        if isinstance(df_close.columns, pd.MultiIndex):
-            df_close.columns = df_close.columns.get_level_values(-1)
-    else:
-        df_close = df_close.to_frame(name=activos[0])
-        
-    datos_usd = df_close.dropna().copy()
-    
-    # Dolarización dinámica (.BA)
-    for col in datos_usd.columns:
-        if col.endswith(".BA"):
-            datos_usd[col] = datos_usd[col] / mep_actual
-    
-    rendimientos = datos_usd.pct_change().dropna()
-    
-    if rendimientos.empty:
-        st.warning("⚠️ No hay suficientes datos coincidentes tras limpiar las filas vacías.")
-        st.stop()
+# Descarga limpia de Yahoo Finance
+datos_raw = yf.download(activos, start=fecha_inicio, end=fecha_fin)
+if datos_raw.empty or 'Close' not in datos_raw:
+    st.warning("⚠️ No se encontraron precios de cierre para los tickers ingresados.")
+    st.stop()
 
-    ret_anuales = rendimientos.mean() * 252
-    cov_matrix = rendimientos.cov() * 252
-    num_activos = len(datos_usd.columns)
+df_close = datos_raw['Close']
 
-    # --- MÓDULO 1: MARKOWITZ CLÁSICO ---
-    if modulo_seleccionado == "📈 Optimización Clásica (Markowitz)":
-        st.header("📈 Optimización Clásica de Portafolios (Markowitz)")
-        st.write("Simulación de Montecarlo para detectar las carteras eficientes en USD.")
-        
-        num_portafolios = st.slider("Número de portafolios a simular:", 5000, 25000, 15000, step=5000)
-        
-        if st.button("🚀 Calcular Frontera Eficiente"):
-            results = np.zeros((3, num_portafolios))
-            w_list = []
-            
-            for i in range(num_portafolios):
-                w = np.random.random(num_activos)
-                w /= np.sum(w)
-                w_list.append(w)
-                res = calcular_metricas_cartera(w, ret_anuales, cov_matrix)
-                results[0, i] = res[0]
-                results[1, i] = res[1]
-                results[2, i] = res[2]
-
-            idx_sharpe = results[2].argmax()
-            idx_min_vol = results[1].argmin()
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                st.success("### 🎯 Cartera Máx. Sharpe (USD)")
-                st.metric("Retorno Esperado", f"{results[0, idx_sharpe]:.2%}")
-                st.metric("Volatilidad (Riesgo)", f"{results[1, idx_sharpe]:.2%}")
-                df_sharpe = pd.DataFrame({'Activo': datos_usd.columns, 'Asignación (%)': w_list[idx_sharpe] * 100})
-                st.dataframe(df_sharpe.style.format({'Asignación (%)': '{:.2f}%'}), use_container_width=True)
-                
-            with c2:
-                st.info("### 🛡️ Cartera Mínima Volatilidad (USD)")
-                st.metric("Retorno Esperado", f"{results[0, idx_min_vol]:.2%}")
-                st.metric("Volatilidad (Riesgo)", f"{results[1, idx_min_vol]:.2%}")
-                df_vol = pd.DataFrame({'Activo': datos_usd.columns, 'Asignación (%)': w_list[idx_min_vol] * 100})
-                st.dataframe(df_vol.style.format({'Asignación (%)': '{:.2f}%'}), use_container_width=True)
+# Blindaje contra MultiIndex (Evita el error 'Columns must be same length as key')
+if isinstance(df_close, pd.DataFrame):
+    if isinstance(df_close.columns, pd.MultiIndex):
