@@ -44,7 +44,7 @@ modulo = st.sidebar.selectbox(
         "⚡ Diagnóstico y Rebalanceo de Cartera Actual",
         "📈 Frontera Eficiente (Markowitz)", 
         "🎯 Cartera por Retorno Objetivo (Multialternativa)", 
-        "💰 Simulador de Retiro Automatizado"
+        "💰 Simulador de Retiro Automatizado",
         "Neuro-Analisis de Portafolio"
     ]
 )
@@ -187,7 +187,7 @@ if modulo == "🔮 Algoritmo Black-Litterman (Opinión + Presets)":
 
 
 # =========================================================================
-# MÓDULO: DIAGNÓSTICO Y REBALANCEO (FIX VALUERROR)
+# MÓDULO: DIAGNÓSTICO Y REBALANCEO
 # =========================================================================
 elif modulo == "⚡ Diagnóstico y Rebalanceo de Cartera Actual":
     st.header("⚡ Diagnóstico y Plan de Rebalanceo de Posiciones")
@@ -204,7 +204,6 @@ elif modulo == "⚡ Diagnóstico y Rebalanceo de Cartera Actual":
         st.warning("⚠️ La suma de tus porcentajes debe ser exactamente 100%.")
     else:
         if st.button("⚡ Analizar y Corregir Cartera"):
-            # Forzamos optimización fresca sobre los activos de la barra lateral para evitar desfasajes de longitud
             res_fb = minimize(lambda w: -calcular_metricas(w, ret_anuales, cov_matrix)[2], [1./num_activos]*num_activos, bounds=((0,1),)*num_activos, constraints={'type':'eq','fun':lambda w: np.sum(w)-1.0})
             pesos_objetivo_ordenados = res_fb.x * 100
                 
@@ -375,7 +374,7 @@ elif modulo == "💰 Simulador de Retiro Automatizado":
             for s in range(30):
                 for t in range(1, meses):
                     rendimiento_mes = np.random.normal(params['mu']/12, params['sigma']/np.sqrt(12))
-                    trayectorias[t, s] = max(0, trayectorias[t-1, s] * (1 + rendimiento_mes) - retiro_mensual)
+                    trayectorias[t, s] = max(0, trajectories = trayectorias[t-1, s] * (1 + rendimiento_mes) - retiro_mensual)
             df_grafico[nombre] = np.mean(trayectorias, axis=1)
             
         st.line_chart(df_grafico)
@@ -391,17 +390,17 @@ elif modulo == "💰 Simulador de Retiro Automatizado":
         with c_p3:
             m = (df_grafico['Arriesgado (Riesgo Alto)'] > 0).sum()
             st.metric("Duración Arriesgado", f"{m} meses", f"{m/12:.1f} años")
-            elif modulo == "Neuro-Analisis de Portafolio":
+
+
+# =========================================================================
+# MÓDULO: NEURO-ANÁLISIS DE PORTAFOLIO
+# =========================================================================
+elif modulo == "Neuro-Analisis de Portafolio":
     st.header("🧠 Oráculo de Comportamiento del Inversor")
-    
     vol_diaria = rendimientos.std().mean()
     if vol_diaria > 0.02:
-        st.error("ESTADO: ALTA ANSIEDAD. Tu cartera tiene mucha volatilidad. Considera ajustar tu exposición.")
+        st.error("ESTADO: ALTA ANSIEDAD. Considera ajustar tu exposición.")
     else:
-        st.success("ESTADO: MODO ZEN. Tu cartera mantiene una volatilidad estable.")
-    
-    umbral = st.slider("Límite de caída tolerable en un día (%)", 1, 20, 5)
-    prob_caida = (rendimientos.mean() - (2 * rendimientos.std())).min() * 100
-    
-    st.write(f"Probabilidad estadística de una caída mayor al {umbral}%: {abs(prob_caida):.1f}%")
-    st.info("Nota: Este módulo analiza el riesgo conductual basado en la volatilidad histórica de los activos seleccionados.")
+        st.success("ESTADO: MODO ZEN. Cartera estable.")
+    umbral = st.slider("Límite de caída tolerable (%)", 5, 50, 15)
+    st.write(f"Tu umbral configurado es {umbral}%. Mantén la calma si el mercado fluctúa.")
