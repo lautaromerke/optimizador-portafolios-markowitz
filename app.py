@@ -26,23 +26,28 @@ num_portafolios = st.sidebar.slider("Número de portafolios a simular:", 5000, 3
 
 activos = [x.strip().upper() for x in lista_tickers.split(",")]
 
-# --- FUNCIÓN INTEGRADA PARA CONSULTAR EL MEP EN ÁMBITO FINANCIERO ---
-@st.cache_data(ttl=600)  # Guarda el precio por 10 minutos para no saturar la página
-def consultar_mep_ambito():
+# --- CONSULTA AUTOMÁTICA DE MEP EN VIVO ---
+@st.cache_data(ttl=300)  # Guarda el precio por 5 minutos para que no sature la app
+def obtener_mep_en_vivo():
+    # Intento 1: API de Criptoya (Muy rápido y actualizado con AL30)
     try:
-        # Consultamos la API pública de cotizaciones de Ámbito Financiero
-        url = "https://mercados.ambito.com/dolar/mep/variacion"
-        r = requests.get(url, timeout=5)
+        r = requests.get("https://criptoya.com/api/dolar", timeout=5)
         if r.status_code == 200:
-            # Extraemos el valor de venta y limpiamos los puntos/comas del texto
-            valor_texto = r.json()["venta"].replace(".", "").replace(",", ".")
-            return float(valor_texto)
+            return float(r.json()["mep"]["al30"]["ci"])
     except:
         pass
-    return 1431.0  # Valor de respaldo exacto actual si la red falla
+        
+    # Intento 2: DolarAPI
+    try:
+        r = requests.get("https://dolarapi.com/v1/dolares/mep", timeout=5)
+        if r.status_code == 200:
+            return float(r.json()["venta"])
+    except:
+        pass
 
-# Traemos el valor automatizado de internet
-mep_sincronizado = consultar_mep_ambito()
+    return 1431.0  # Valor de respaldo exacto por si las APIs fallan
+
+mep_sincronizado = obtener_mep_en_vivo()
 
 st.sidebar.header("💵 Tipo de Cambio Automático")
 mep_actual = st.sidebar.number_input(
@@ -50,11 +55,10 @@ mep_actual = st.sidebar.number_input(
     min_value=1.0, 
     value=mep_sincronizado, 
     step=1.0,
-    help="Este valor se actualiza automáticamente consultando portales financieros en vivo."
+    help="Este valor se conecta a internet para traer el MEP real del mercado."
 )
 
-# Botón rápido por si el usuario quiere forzar una reconexión
-if st.sidebar.button("🔄 Recargar Dólar en Vivo"):
+if st.sidebar.button("🔄 Forzar Recarga de Dólar"):
     st.cache_data.clear()
     st.rerun()
 
@@ -74,7 +78,6 @@ fechas_crisis = {
 if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
     with st.spinner("Descargando precios del mercado y procesando conversión a USD..."):
         try:
-            hoy = date.today()
             if fecha_inicio >= fecha_fin:
                 st.warning("⚠️ **Error en el rango:** La fecha de inicio no puede ser posterior o igual a la de fin.")
                 st.stop()
@@ -126,7 +129,7 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
             idx_min_vol = resultados[1].argmin()
             pesos_optimos = lista_pesos[idx_max_sharpe]
             
-            # --- RENDERIZADO INTERFAZ DINÁMICA ---
+            # --- RENDERIZADO INTERFAZ ---
             if crisis_seleccionada == "Ninguna":
                 col1, col2 = st.columns(2)
                 with col1:
@@ -149,7 +152,7 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                 scatter = ax.scatter(resultados[1,:], resultados[0,:], c=resultados[2,:], cmap='viridis', s=10, alpha=0.4)
                 fig.colorbar(scatter, ax=ax, label='Ratio de Sharpe')
                 ax.scatter(resultados[1, idx_max_sharpe], resultados[0, idx_max_sharpe], color='red', marker='*', s=200, label='Cartera Óptima')
-                ax.scatter(resultados[1, idx_min_vol], whites = resultados[1, idx_min_vol], color='blue', marker='*', s=200, label='Mínimo Riesgo')
+                ax.scatter(resultados[1, idx_min_vol], resultados[0, idx_min_vol], color='blue', marker='*', s=200, label='Mínimo Riesgo')
                 ax.set_xlabel('Riesgo Anualizado (Volatilidad)')
                 ax.set_ylabel('Retorno Anual Esperado (USD)')
                 ax.legend()
@@ -173,3 +176,49 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                 with col2:
                     st.error("### 🚨 Riesgo Extremo (VaR)")
                     st.metric("Value at Risk (VaR 95% Diario)", f"{var_diario_95:.2%}")
+                    st.metric("Conditional VaR (CVaR 95%)", f"{cvar_diario_95:.2%}")
+                with col3:
+                    st.info("### 📊 Asignación de Capital")
+                    df_optimo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': pesos_optimos * 100})
+                    st.dataframe(df_optimo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
+                
+                st.markdown("---")
+                col_graf1, col_graf2 = st.columns(2)
+                with col_graf1:
+                    st.subheader("📈 Frontera Eficiente Dolarizada")
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    scatter = ax.scatter(resultados[1,:], resultados[0,:], c=resultados[2,:], cmap='viridis', s=8, alpha=0.3)
+                    fig.colorbar(scatter, ax=ax, label='Ratio de Sharpe')
+                    ax.scatter(resultados[1, idx_max_sharpe], resultados[0, idx_max_sharpe], color='red', marker='*', s=200, label='Cartera Óptima')
+                    ax.set_xlabel('Volatilidad Anualizada')
+                    ax.set_ylabel('Retorno Anual Esperado (USD)')
+                    ax.grid(True, alpha=0.2)
+                    st.pyplot(fig)
+                    
+                with col_graf2:
+                    st.subheader(f"⚡ Impacto de Crisis: {crisis_seleccionada}")
+                    inicio_c, fin_c = fechas_crisis[crisis_seleccionada]
+                    datos_crisis_raw = yf.download(activos, start=inicio_c, end=fin_c)
+                    
+                    if not datos_crisis_raw.empty and 'Close' in datos_crisis_raw:
+                        df_crisis_close = datos_crisis_raw['Close']
+                        if isinstance(df_crisis_close, pd.Series):
+                            df_crisis_close = df_crisis_close.to_frame(name=activos[0])
+                        datos_crisis = df_crisis_close.dropna()
+                        
+                        datos_normalizados = (datos_crisis / datos_crisis.iloc[0]) * 100
+                        evolucion_cartera = datos_normalizados.dot(pesos_optimos)
+                        
+                        fig2, ax2 = plt.subplots(figsize=(8, 5))
+                        ax2.plot(evolucion_cartera.index, evolucion_cartera.values, label="Mi Cartera Óptima", color='red', linewidth=2.5)
+                        for col in datos_normalizados.columns:
+                            ax2.plot(datos_normalizados.index, datos_normalizados[col].values, alpha=0.4, linestyle='--', label=col)
+                        ax2.set_ylabel('Evolución del Capital (Base 100)')
+                        ax2.legend(loc='lower left', fontsize='small')
+                        ax2.grid(True, alpha=0.2)
+                        st.pyplot(fig2)
+                    else:
+                        st.error("Datos insuficientes para simular la crisis.")
+                        
+        except Exception as e:
+            st.error(f"Error en el procesamiento de datos financieros: {e}")
