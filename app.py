@@ -12,7 +12,7 @@ import requests
 # 1. Configuración de la plataforma
 st.set_page_config(page_title="Portfolio Intelligence Suite", layout="wide")
 
-st.title("📊 Suite Financiera: Optimización y Reportes")
+st.title("📊 Suite Financiera Pro: Optimización Avanzada")
 st.markdown("""
 Esta plataforma te permite analizar activos de forma modular. 
 Los activos locales (.BA) se detectan y **se dolarizan automáticamente usando el Dólar MEP**.
@@ -40,10 +40,15 @@ mep_actual = st.sidebar.number_input("Dólar MEP ($):", value=obtener_mep(), ste
 st.sidebar.header("🕹️ 2. Seleccionar Módulo")
 modulo = st.sidebar.selectbox(
     "¿Qué herramienta deseas utilizar?", 
-    ["📈 Frontera Eficiente (Markowitz)", "🎯 Cartera por Retorno Objetivo", "💰 Simulador de Retiro"]
+    [
+        "📈 Frontera Eficiente (Markowitz)", 
+        "🎯 Cartera por Retorno Objetivo", 
+        "🔮 Algoritmo Black-Litterman (Opinión de Mercado)",
+        "💰 Simulador de Retiro"
+    ]
 )
 
-# --- FUNCIONES AUXILIARES ---
+# --- FUNCIONES AUXAILIARES ---
 def calcular_metricas(weights, ret_anuales, cov_matrix):
     ret = np.sum(ret_anuales * weights)
     vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
@@ -51,35 +56,25 @@ def calcular_metricas(weights, ret_anuales, cov_matrix):
     return ret, vol, sharpe
 
 def safe_str(texto):
-    # Remueve acentos y caracteres especiales no soportados por las fuentes por defecto de FPDF
     return str(texto).encode('latin-1', 'ignore').decode('latin-1')
 
 def generar_reporte_pdf(datos_cartera, nombre_plan, retorno, riesgo):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Encabezado
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 12, safe_str(f"Reporte Financiero: {nombre_plan}"), ln=True, align="C")
     pdf.ln(8)
-    
-    # Info general
     pdf.set_font("Helvetica", "", 11)
     pdf.cell(0, 8, safe_str(f"Fecha de emision: {date.today().strftime('%d/%m/%Y')}"), ln=True)
     pdf.cell(0, 8, safe_str(f"Retorno Anual Esperado (USD): {retorno:.2%}"), ln=True)
     pdf.cell(0, 8, safe_str(f"Volatilidad Anual (Riesgo): {riesgo:.2%}"), ln=True)
     pdf.ln(6)
-    
-    # Tabla de posiciones
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 10, safe_str("Composicion Eficiente del Portafolio:"), ln=True)
     pdf.set_font("Helvetica", "", 11)
-    
     for _, row in datos_cartera.iterrows():
-        # Usamos un guion común en lugar del punto de viñeta unicode
         linea = f"  - {row['Activo']}: {row['Peso %']:.2f}%"
         pdf.cell(0, 8, safe_str(linea), ln=True)
-        
     return bytes(pdf.output())
 
 # --- DESCARGA Y PROCESAMIENTO DE DATOS FINANCIEROS ---
@@ -151,12 +146,7 @@ if modulo == "📈 Frontera Eficiente (Markowitz)":
             st.dataframe(df_w.style.format({'Peso %': '{:.2f}%'}), use_container_width=True)
             
             pdf_data = generar_reporte_pdf(df_w, "Maximo Sharpe (Markowitz)", results[0, idx_sharpe], results[1, idx_sharpe])
-            st.download_button(
-                label="📩 Descargar Reporte PDF", 
-                data=pdf_data, 
-                file_name="reporte_markowitz.pdf", 
-                mime="application/pdf"
-            )
+            st.download_button(label="📩 Descargar Reporte PDF", data=pdf_data, file_name="reporte_markowitz.pdf", mime="application/pdf")
 
 
 # =========================================================================
@@ -198,18 +188,96 @@ elif modulo == "🎯 Cartera por Retorno Objetivo":
                 st.dataframe(df_w.style.format({'Peso %': '{:.2f}%'}), use_container_width=True)
                 
                 pdf_data = generar_reporte_pdf(df_w, "Retorno Objetivo Minimizado", r, v)
-                st.download_button(
-                    label="📩 Descargar Reporte PDF", 
-                    data=pdf_data, 
-                    file_name="reporte_objetivo.pdf", 
-                    mime="application/pdf"
-                )
+                st.download_button(label="📩 Descargar Reporte PDF", data=pdf_data, file_name="reporte_objetivo.pdf", mime="application/pdf")
         else:
             st.error("⚠️ Meta inalcanzable con el set de activos actual.")
 
 
 # =========================================================================
-# MÓDULO 3: SIMULADOR DE RETIROS
+# MÓDULO 3: ALGORITMO BLACK-LITTERMAN (INNOVACIÓN)
+# =========================================================================
+elif modulo == "🔮 Algoritmo Black-Litterman (Opinión de Mercado)":
+    st.header("🔮 Optimización Avanzada de Black-Litterman")
+    st.markdown("""
+    Este modelo combina los **retornos históricos base (Priori)** con **tus proyecciones personales**. 
+    Ajusta los sliders para inyectar tus visiones subjetivas y el nivel de confianza que tenés en ellas.
+    """)
+    
+    st.write("### 🧠 Configura tus Opiniones de Rendimiento Extra (Anual USD)")
+    views = []
+    confianzas = []
+    
+    # Generar dinámicamente controles para cada activo ingresado
+    columnas_activos = st.columns(min(num_activos, 4))
+    for idx, col_name in enumerate(datos_usd.columns):
+        with columnas_activos[idx % 4]:
+            st.subheader(col_name)
+            v_val = st.slider(f"Rendimiento Extra:", -20.0, 20.0, 0.0, step=1.0, key=f"v_{col_name}") / 100
+            c_val = st.slider(f"Confianza (%):", 10, 100, 50, step=10, key=f"c_{col_name}") / 100
+            views.append(v_val)
+            confianzas.append(c_val)
+
+    if st.button("🔮 Ejecutar Fusión Bayesiana"):
+        # 1. Parámetros base (Prior)
+        Pi = ret_anuales.values
+        Sigma = cov_matrix.values
+        tau = 0.05 # Escala de incertidumbre del prior estándar
+        
+        # 2. Matrices de Opinión (Vistas directas por activo)
+        P = np.eye(num_activos)
+        Q = Pi + np.array(views) # Sumamos la visión subjetiva al rendimiento base
+        
+        # 3. Matriz de Incertidumbre Omega (basado en la confianza del usuario)
+        Omega = np.zeros((num_activos, num_activos))
+        for i in range(num_activos):
+            # A menor confianza, mayor varianza del error de la opinión
+            incertidumbre = (1.01 - confianzas[i]) * (Sigma[i, i] * 2)
+            Omega[i, i] = max(incertidumbre, 1e-6)
+            
+        # 4. Fórmula Maestra de Black-Litterman (Fusión Bayesiana de Retorno)
+        inv_tau_Sigma = np.linalg.inv(tau * Sigma)
+        inv_Omega = np.linalg.inv(Omega)
+        
+        Retorno_BL = np.linalg.inv(inv_tau_Sigma + np.dot(P.T, np.dot(inv_Omega, P))) \
+                     @ (np.dot(inv_tau_Sigma, Pi) + np.dot(P.T, np.dot(inv_Omega, Q)))
+                     
+        # 5. Optimizar pesos usando los nuevos retornos ajustados de Black-Litterman (Max Sharpe BL)
+        def max_sharpe_bl(w):
+            r, v, s = calcular_metricas(w, Retorno_BL, cov_matrix)
+            return -s # Maximizamos Sharpe invirtiendo el signo
+            
+        cons = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0})
+        limites = tuple((0.0, 1.0) for _ in range(num_activos))
+        iniciales = [1.0 / num_activos] * num_activos
+        
+        res_bl = minimize(max_sharpe_bl, iniciales, bounds=limites, constraints=cons)
+        
+        if res_bl.success:
+            r_final, v_final, s_final = calcular_metricas(res_bl.x, Retorno_BL, cov_matrix)
+            df_bl = pd.DataFrame({'Activo': datos_usd.columns, 'Peso %': res_bl.x * 100})
+            
+            st.markdown("---")
+            st.subheader("🏁 Resultado de la Cartera Fusionada (BL)")
+            
+            c_bl1, c_bl2 = st.columns(2)
+            with c_bl1:
+                fig_pie = px.pie(df_bl, values='Peso %', names='Activo', hole=0.4,
+                                 color_discrete_sequence=px.colors.qualitative.Prism)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            with c_bl2:
+                st.success("### ✨ Nuevas Métricas Estimadas")
+                st.metric("Retorno Esperado Ajustado (USD)", f"{r_final:.2%}")
+                st.metric("Volatilidad de Mercado", f"{v_final:.2%}")
+                st.dataframe(df_bl.style.format({'Peso %': '{:.2f}%'}), use_container_width=True)
+                
+                pdf_data = generar_reporte_pdf(df_bl, "Black-Litterman Bayesiano", r_final, v_final)
+                st.download_button(label="📩 Descargar Reporte BL (PDF)", data=pdf_data, file_name="reporte_black_litterman.pdf", mime="application/pdf")
+        else:
+            st.error("No se pudo converger en una solución óptima para las opiniones dadas.")
+
+
+# =========================================================================
+# MÓDULO 4: SIMULADOR DE RETIROS
 # =========================================================================
 elif modulo == "💰 Simulador de Retiro":
     st.header("💰 Simulador de Supervivencia de Capital")
