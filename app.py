@@ -57,8 +57,16 @@ def calcular_metricas(weights, ret_anuales, cov_matrix):
     return ret, vol, sharpe
 
 def safe_str(texto):
-    # Convierte caracteres Unicode problemáticos para evitar colapsos en la generación del PDF
-    return str(texto).encode('latin-1', 'ignore').decode('latin-1')
+    # Limpieza total de caracteres especiales para evitar FPDFUnicodeEncodingException
+    remplazos = {
+        "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u",
+        "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U",
+        "ñ": "n", "Ñ": "N", "%": " por ciento", "•": "-"
+    }
+    origen = str(texto)
+    for k, v in remplazos.items():
+        origen = origen.replace(k, v)
+    return origen.encode('latin-1', 'ignore').decode('latin-1')
 
 def generar_reporte_pdf(datos_cartera, nombre_plan, retorno, riesgo):
     pdf = FPDF()
@@ -72,11 +80,10 @@ def generar_reporte_pdf(datos_cartera, nombre_plan, retorno, riesgo):
     pdf.cell(0, 8, safe_str(f"Volatilidad Anual (Riesgo): {riesgo:.2%}"), ln=True)
     pdf.ln(6)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, safe_str("Composicion Eficiente del Portafolio:"), ln=True)
+    pdf.cell(0, 10, safe_str("Composicion del Portafolio:"), ln=True)
     pdf.set_font("Helvetica", "", 11)
     for _, row in datos_cartera.iterrows():
-        # Evitamos el símbolo % nativo en la celda string de FPDF para prevenir FPDFUnicodeEncodingException
-        linea = f"  - {row['Activo']}: {row['Peso %']:.2f} por ciento"
+        linea = f"  - {row['Activo']}: {row['Peso %']:.2f}"
         pdf.cell(0, 8, safe_str(linea), ln=True)
     return bytes(pdf.output())
 
@@ -216,7 +223,7 @@ if modulo == "🔮 Algoritmo Black-Litterman (Opinión + Presets)":
 
 
 # =========================================================================
-# MÓDULO: DIAGNÓSTICO Y REBALANCEO AUTOMÁTICO
+# MÓDULO: DIAGNÓSTICO Y REBALANCEO AUTOMÁTICO (CORREGIDO DE RAÍZ)
 # =========================================================================
 elif modulo == "⚡ Diagnóstico y Rebalanceo de Cartera Actual":
     st.header("⚡ Diagnóstico y Plan de Rebalanceo de Posiciones")
@@ -238,11 +245,11 @@ elif modulo == "⚡ Diagnóstico y Rebalanceo de Cartera Actual":
             pesos_actuales.append(p_act)
             
     sum_pesos = sum(pesos_actuales)
-    if abs(sum_pesos - 100.0) > 0.1:
+    if abs(sum_pesos - 100.0) > 0.5:
         st.warning(f"⚠️ La suma de tus porcentajes actuales es {sum_pesos:.1f}%. Debe sumar exactamente 100% para realizar el análisis.")
     else:
         if st.button("⚡ Analizar y Corregir Cartera"):
-            if 'cartera_optima' in st.session_state:
+            if 'cartera_optima' in st.session_state and len(st.session_state['cartera_optima']) == num_activos:
                 df_target = st.session_state['cartera_optima']
                 origen_target = "Sugerida por Black-Litterman"
             else:
@@ -251,11 +258,19 @@ elif modulo == "⚡ Diagnóstico y Rebalanceo de Cartera Actual":
                 df_target = pd.DataFrame({'Activo': datos_usd.columns, 'Peso %': res_fb.x * 100})
                 origen_target = "Óptima Teórica (Markowitz Histórico)"
                 
+            # Forzamos alineación de índices y dimensiones idénticas
+            activos_lista = list(datos_usd.columns)
+            pesos_objetivo_ordenados = []
+            for act in activos_lista:
+                val_target = df_target.loc[df_target['Activo'] == act, 'Peso %'].values
+                pesos_objetivo_ordenados.append(val_target[0] if len(val_target) > 0 else 0.0)
+
             df_reb = pd.DataFrame({
-                'Activo': datos_usd.columns,
+                'Activo': activos_lista,
                 'Peso Actual %': pesos_actuales,
-                'Peso Objetivo %': df_target['Peso %'].values
+                'Peso Objetivo %': pesos_objetivo_ordenados
             })
+            
             df_reb['Desvío %'] = df_reb['Peso Objetivo %'] - df_reb['Peso Actual %']
             df_reb['Monto Actual (USD)'] = (df_reb['Peso Actual %'] / 100) * capital_total
             df_reb['Monto Objetivo (USD)'] = (df_reb['Peso Objetivo %'] / 100) * capital_total
