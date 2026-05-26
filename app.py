@@ -57,6 +57,7 @@ def calcular_metricas(weights, ret_anuales, cov_matrix):
     return ret, vol, sharpe
 
 def safe_str(texto):
+    # Convierte caracteres Unicode problemáticos para evitar colapsos en la generación del PDF
     return str(texto).encode('latin-1', 'ignore').decode('latin-1')
 
 def generar_reporte_pdf(datos_cartera, nombre_plan, retorno, riesgo):
@@ -74,7 +75,8 @@ def generar_reporte_pdf(datos_cartera, nombre_plan, retorno, riesgo):
     pdf.cell(0, 10, safe_str("Composicion Eficiente del Portafolio:"), ln=True)
     pdf.set_font("Helvetica", "", 11)
     for _, row in datos_cartera.iterrows():
-        linea = f"  - {row['Activo']}: {row['Peso %']:.2f}%"
+        # Evitamos el símbolo % nativo en la celda string de FPDF para prevenir FPDFUnicodeEncodingException
+        linea = f"  - {row['Activo']}: {row['Peso %']:.2f} por ciento"
         pdf.cell(0, 8, safe_str(linea), ln=True)
     return bytes(pdf.output())
 
@@ -283,7 +285,7 @@ elif modulo == "⚡ Diagnóstico y Rebalanceo de Cartera Actual":
 
 
 # =========================================================================
-# MÓDULOS TRADICIONALES CONSERVADOS
+# MÓDULOS TRADICIONALES
 # =========================================================================
 elif modulo == "📈 Frontera Eficiente (Markowitz)":
     st.header("📈 Optimización Clásica (Frontera de Markowitz)")
@@ -313,6 +315,7 @@ elif modulo == "📈 Frontera Eficiente (Markowitz)":
             st.metric("Retorno Esperado (USD)", f"{results[0, idx_sharpe]:.2%}")
             st.metric("Volatilidad (Riesgo)", f"{results[1, idx_sharpe]:.2%}")
             st.dataframe(df_w.style.format({'Peso %': '{:.2f}%'}), use_container_width=True)
+            
             pdf_data = generar_reporte_pdf(df_w, "Maximo Sharpe (Markowitz)", results[0, idx_sharpe], results[1, idx_sharpe])
             st.download_button(label="📩 Descargar Reporte PDF", data=pdf_data, file_name="reporte_markowitz.pdf", mime="application/pdf")
 
@@ -339,8 +342,9 @@ elif modulo == "🎯 Cartera por Retorno Objetivo":
                 st.metric("Retorno Objetivo", f"{r:.2%}")
                 st.metric("Riesgo Mínimo", f"{v:.2%}")
                 st.dataframe(df_w.style.format({'Peso %': '{:.2f}%'}), use_container_width=True)
+                
                 pdf_data = generar_reporte_pdf(df_w, "Retorno Objetivo Minimizado", r, v)
-                st.download_button(label="📩 Descargar Reporte PDF", data=pdf_name="reporte_objetivo.pdf", mime="application/pdf")
+                st.download_button(label="📩 Descargar Reporte PDF", data=pdf_data, file_name="reporte_objetivo.pdf", mime="application/pdf")
         else:
             st.error("⚠️ Meta inalcanzable con el set de activos actual.")
 
