@@ -5,220 +5,86 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import date
 import scipy.stats as stats
+from scipy.optimize import minimize
 import requests
 
 # 1. Configuración de la página web
-st.set_page_config(page_title="Plataforma de Optimización de Portafolios", layout="wide")
+st.set_page_config(page_title="Plataforma de Planificación Financiera", layout="wide")
 
-st.title("📊 Optimizador de Portafolios con Dolarización MEP")
+st.title("📊 Planificador Financiero Avanzado: Markowitz + Montecarlo")
 st.markdown("""
-Esta plataforma automatiza la **Teoría de Markowitz** y está adaptada al mercado argentino. 
-Detecta activos locales en pesos y los **convierte automáticamente a Dólar MEP** para unificar el análisis en moneda dura.
+Esta plataforma integra la **Teoría de Markowitz** con **Optimización por Objetivos** y **Simulaciones de Montecarlo** para proyectar la supervivencia de capital a largo plazo.
 """)
 
 st.sidebar.header("🔧 1. Configuración del Portafolio")
-
-# Inputs interactivos principales
-lista_tickers = st.sidebar.text_input("Introduce los Tickers (ej: AAPL, GGAL.BA, MSFT, YPFD.BA):", "AAPL, GGAL.BA, MSFT, KO")
-fecha_inicio = st.sidebar.date_input("Fecha de inicio:", pd.to_datetime("2022-01-01"))
-fecha_fin = st.sidebar.date_input("Fecha de fin:", pd.to_datetime("2026-05-25"))
-num_portafolios = st.sidebar.slider("Número de portafolios a simular:", 5000, 30000, 20000, step=5000)
+lista_tickers = st.sidebar.text_input("Tickers (ej: AAPL, GGAL.BA, MSFT, YPFD.BA):", "AAPL, GGAL.BA, MSFT, KO")
+fecha_inicio = st.sidebar.date_input("Histórico desde:", pd.to_datetime("2021-01-01"))
+num_portafolios = st.sidebar.slider("Simulaciones Markowitz:", 5000, 25000, 15000, step=5000)
 
 activos = [x.strip().upper() for x in lista_tickers.split(",")]
 
-# --- CONSULTA AUTOMÁTICA DE MEP EN VIVO ---
-@st.cache_data(ttl=300)  # Guarda el precio por 5 minutos para que no sature la app
+st.sidebar.header("🎯 2. Objetivo de Inversión")
+retorno_objetivo_pct = st.sidebar.slider("Retorno Anual Objetivo (USD %):", 5.0, 30.0, 12.0, step=0.5)
+
+st.sidebar.header("💰 3. Simulador de Retiro")
+capital_inicial = st.sidebar.number_input("Capital Inicial (USD):", min_value=1000, value=10000, step=1000)
+retiro_mensual = st.sidebar.number_input("Retiro Mensual Deseado (USD):", min_value=0, value=500, step=50)
+anios_proyeccion = st.sidebar.slider("Años de Proyección:", 5, 30, 15)
+
+# --- CONSULTA AUTOMÁTICA DE MEP ---
+@st.cache_data(ttl=300)
 def obtener_mep_en_vivo():
-    # Intento 1: API de Criptoya (Muy rápido y actualizado con AL30)
     try:
         r = requests.get("https://criptoya.com/api/dolar", timeout=5)
         if r.status_code == 200:
             return float(r.json()["mep"]["al30"]["ci"])
-    except:
-        pass
-        
-    # Intento 2: DolarAPI
-    try:
-        r = requests.get("https://dolarapi.com/v1/dolares/mep", timeout=5)
-        if r.status_code == 200:
-            return float(r.json()["venta"])
-    except:
-        pass
+    except: pass
+    return 1431.0
 
-    return 1431.0  # Valor de respaldo exacto por si las APIs fallan
+mep_actual = st.sidebar.number_input("Dólar MEP ($):", value=obtener_mep_en_vivo())
 
-mep_sincronizado = obtener_mep_en_vivo()
+# --- FUNCIONES MATEMÁTICAS DE OPTIMIZACIÓN ---
+def get_ret_vol_sharpe(weights, ret_anuales, cov_matrix):
+    ret = np.sum(ret_anuales * weights)
+    vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    sharpe = ret / vol
+    return np.array([ret, vol, sharpe])
 
-st.sidebar.header("💵 Tipo de Cambio Automático")
-mep_actual = st.sidebar.number_input(
-    "Cotización Dólar MEP ($):", 
-    min_value=1.0, 
-    value=mep_sincronizado, 
-    step=1.0,
-    help="Este valor se conecta a internet para traer el MEP real del mercado."
-)
+def check_sum(weights):
+    return np.sum(weights) - 1
 
-if st.sidebar.button("🔄 Forzar Recarga de Dólar"):
-    st.cache_data.clear()
-    st.rerun()
+# Optimización para Retorno Objetivo
+def minimize_volatility(weights, ret_anuales, cov_matrix):
+    return get_ret_vol_sharpe(weights, ret_anuales, cov_matrix)[1]
 
-st.sidebar.header("🚨 2. Análisis de Estrés Avanzado")
-crisis_seleccionada = st.sidebar.selectbox(
-    "Selecciona una crisis histórica (Opcional):",
-    ["Ninguna", "Pandemia COVID-19 (2020)", "Crisis Financiera Subprime (2008)", "Ajuste Macroeconómico Global (2022)"]
-)
-
-fechas_crisis = {
-    "Pandemia COVID-19 (2020)": ("2020-02-01", "2020-06-01"),
-    "Crisis Financiera Subprime (2008)": ("2008-01-01", "2009-06-01"),
-    "Ajuste Macroeconómico Global (2022)": ("2022-01-01", "2022-12-31")
-}
-
-# Botón para ejecutar la optimización
-if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
-    with st.spinner("Descargando precios del mercado y procesando conversión a USD..."):
+if st.sidebar.button("🚀 Ejecutar Planificación Integral"):
+    with st.spinner("Procesando modelos cuantitativos y proyecciones..."):
         try:
-            if fecha_inicio >= fecha_fin:
-                st.warning("⚠️ **Error en el rango:** La fecha de inicio no puede ser posterior o igual a la de fin.")
-                st.stop()
+            # --- DESCARGA Y DOLARIZACIÓN ---
+            datos_raw = yf.download(activos, start=fecha_inicio)['Close'].dropna()
+            if isinstance(datos_raw, pd.Series): datos_raw = datos_raw.to_frame(name=activos[0])
+            
+            datos_usd = datos_raw.copy()
+            for col in datos_usd.columns:
+                if col.endswith(".BA"): datos_usd[col] = datos_usd[col] / mep_actual
+            
+            rendimientos = datos_usd.pct_change().dropna()
+            ret_anuales = rendimientos.mean() * 252
+            cov_matrix = rendimientos.cov() * 252
 
-            # --- DESCARGA DE ACTIVOS ---
-            datos_completos = yf.download(activos, start=fecha_inicio, end=fecha_fin)
-            if datos_completos.empty or 'Close' not in datos_completos:
-                st.warning("⚠️ No se encontraron datos para los tickers ingresados.")
-                st.stop()
-                
-            df_close = datos_completos['Close']
-            if isinstance(df_close, pd.Series):
-                df_close = df_close.to_frame(name=activos[0])
-                
-            datos = df_close.dropna().copy()
-            
-            # --- DOLARIZACIÓN DINÁMICA DE LA SERIE HISTÓRICA ---
-            datos_dolarizados = datos.copy()
-            for col in datos_dolarizados.columns:
-                if col.endswith(".BA"):
-                    datos_dolarizados[col] = datos_dolarizados[col] / mep_actual
-            
-            rendimientos = datos_dolarizados.pct_change().dropna()
-            
-            if rendimientos.empty:
-                st.warning("⚠️ No hay suficientes datos coincidentes para calcular los rendimientos.")
-                st.stop()
-            
-            retornos_anuales = rendimientos.mean() * 252
-            matriz_covarianza = rendimientos.cov() * 252
-            
-            # --- SIMULACIÓN DE MONTECARLO ---
-            resultados = np.zeros((3, num_portafolios))
-            lista_pesos = []
-
+            # --- MONTECARLO MARKOWITZ ---
+            results = np.zeros((3, num_portafolios))
+            w_list = []
             for i in range(num_portafolios):
-                pesos = np.random.random(len(activos))
-                pesos /= np.sum(pesos)
-                lista_pesos.append(pesos)
-                
-                retorno_p = np.sum(retornos_anuales * pesos)
-                volatilidad_p = np.sqrt(np.dot(pesos.T, np.dot(matriz_covarianza, pesos)))
-                
-                resultados[0,i] = retorno_p
-                resultados[1,i] = volatilidad_p
-                resultados[2,i] = retorno_p / volatilidad_p 
+                w = np.random.random(len(activos))
+                w /= np.sum(w)
+                w_list.append(w)
+                res = get_ret_vol_sharpe(w, ret_anuales, cov_matrix)
+                results[0,i], results[1,i], results[2,i] = res[0], res[1], res[2]
 
-            idx_max_sharpe = resultados[2].argmax()
-            idx_min_vol = resultados[1].argmin()
-            pesos_optimos = lista_pesos[idx_max_sharpe]
-            
-            # --- RENDERIZADO INTERFAZ ---
-            if crisis_seleccionada == "Ninguna":
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.success("### 🎯 Cartera Óptima (Medida en USD)")
-                    st.metric("Retorno Anual Esperado (USD)", f"{resultados[0, idx_max_sharpe]:.2%}")
-                    st.metric("Riesgo (Volatilidad)", f"{resultados[1, idx_max_sharpe]:.2%}")
-                    df_optimo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': pesos_optimos * 100})
-                    st.dataframe(df_optimo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
-                    
-                with col2:
-                    st.info("### 🛡️ Cartera de Mínimo Riesgo (USD)")
-                    st.metric("Retorno Anual Esperado (USD)", f"{resultados[0, idx_min_vol]:.2%}")
-                    st.metric("Riesgo (Volatilidad)", f"{resultados[1, idx_min_vol]:.2%}")
-                    df_min_riesgo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': lista_pesos[idx_min_vol] * 100})
-                    st.dataframe(df_min_riesgo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
-                
-                st.markdown("---")
-                st.subheader("📈 Gráfico: Frontera Eficiente de Markowitz (Valores Dolarizados)")
-                fig, ax = plt.subplots(figsize=(10, 5))
-                scatter = ax.scatter(resultados[1,:], resultados[0,:], c=resultados[2,:], cmap='viridis', s=10, alpha=0.4)
-                fig.colorbar(scatter, ax=ax, label='Ratio de Sharpe')
-                ax.scatter(resultados[1, idx_max_sharpe], resultados[0, idx_max_sharpe], color='red', marker='*', s=200, label='Cartera Óptima')
-                ax.scatter(resultados[1, idx_min_vol], resultados[0, idx_min_vol], color='blue', marker='*', s=200, label='Mínimo Riesgo')
-                ax.set_xlabel('Riesgo Anualizado (Volatilidad)')
-                ax.set_ylabel('Retorno Anual Esperado (USD)')
-                ax.legend()
-                ax.grid(True, alpha=0.3)
-                st.pyplot(fig)
-                
-            else:
-                # MODO CRISIS HISTÓRICA
-                rendimientos_cartera = rendimientos.dot(pesos_optimos)
-                media_c = rendimientos_cartera.mean()
-                sigma_c = rendimientos_cartera.std()
-                var_diario_95 = stats.norm.ppf(0.95, media_c, sigma_c)
-                peores_rendimientos = rendimientos_cartera[rendimientos_cartera <= -var_diario_95]
-                cvar_diario_95 = -peores_rendimientos.mean() if len(peores_rendimientos) > 0 else var_diario_95
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.success("### 🎯 Cartera Óptima")
-                    st.metric("Retorno Anual Esperado (USD)", f"{resultados[0, idx_max_sharpe]:.2%}")
-                    st.metric("Volatilidad Anual", f"{resultados[1, idx_max_sharpe]:.2%}")
-                with col2:
-                    st.error("### 🚨 Riesgo Extremo (VaR)")
-                    st.metric("Value at Risk (VaR 95% Diario)", f"{var_diario_95:.2%}")
-                    st.metric("Conditional VaR (CVaR 95%)", f"{cvar_diario_95:.2%}")
-                with col3:
-                    st.info("### 📊 Asignación de Capital")
-                    df_optimo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': pesos_optimos * 100})
-                    st.dataframe(df_optimo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
-                
-                st.markdown("---")
-                col_graf1, col_graf2 = st.columns(2)
-                with col_graf1:
-                    st.subheader("📈 Frontera Eficiente Dolarizada")
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    scatter = ax.scatter(resultados[1,:], resultados[0,:], c=resultados[2,:], cmap='viridis', s=8, alpha=0.3)
-                    fig.colorbar(scatter, ax=ax, label='Ratio de Sharpe')
-                    ax.scatter(resultados[1, idx_max_sharpe], resultados[0, idx_max_sharpe], color='red', marker='*', s=200, label='Cartera Óptima')
-                    ax.set_xlabel('Volatilidad Anualizada')
-                    ax.set_ylabel('Retorno Anual Esperado (USD)')
-                    ax.grid(True, alpha=0.2)
-                    st.pyplot(fig)
-                    
-                with col_graf2:
-                    st.subheader(f"⚡ Impacto de Crisis: {crisis_seleccionada}")
-                    inicio_c, fin_c = fechas_crisis[crisis_seleccionada]
-                    datos_crisis_raw = yf.download(activos, start=inicio_c, end=fin_c)
-                    
-                    if not datos_crisis_raw.empty and 'Close' in datos_crisis_raw:
-                        df_crisis_close = datos_crisis_raw['Close']
-                        if isinstance(df_crisis_close, pd.Series):
-                            df_crisis_close = df_crisis_close.to_frame(name=activos[0])
-                        datos_crisis = df_crisis_close.dropna()
-                        
-                        datos_normalizados = (datos_crisis / datos_crisis.iloc[0]) * 100
-                        evolucion_cartera = datos_normalizados.dot(pesos_optimos)
-                        
-                        fig2, ax2 = plt.subplots(figsize=(8, 5))
-                        ax2.plot(evolucion_cartera.index, evolucion_cartera.values, label="Mi Cartera Óptima", color='red', linewidth=2.5)
-                        for col in datos_normalizados.columns:
-                            ax2.plot(datos_normalizados.index, datos_normalizados[col].values, alpha=0.4, linestyle='--', label=col)
-                        ax2.set_ylabel('Evolución del Capital (Base 100)')
-                        ax2.legend(loc='lower left', fontsize='small')
-                        ax2.grid(True, alpha=0.2)
-                        st.pyplot(fig2)
-                    else:
-                        st.error("Datos insuficientes para simular la crisis.")
-                        
-        except Exception as e:
-            st.error(f"Error en el procesamiento de datos financieros: {e}")
+            idx_sharpe = results[2].argmax()
+            best_w = w_list[idx_sharpe]
+
+            # --- OPTIMIZACIÓN POR OBJETIVO (SCIPY) ---
+            cons = ({'type':'eq', 'fun': check_sum},
+                    {'type':'eq', 'fun': lambda w: np.sum(ret_anuales * w) -
