@@ -45,6 +45,7 @@ modulo = st.sidebar.selectbox(
         "📈 Frontera Eficiente (Markowitz)", 
         "🎯 Cartera por Retorno Objetivo (Multialternativa)", 
         "💰 Simulador de Retiro Automatizado"
+        "Neuro-Analisis de Portafolio"
     ]
 )
 
@@ -390,3 +391,17 @@ elif modulo == "💰 Simulador de Retiro Automatizado":
         with c_p3:
             m = (df_grafico['Arriesgado (Riesgo Alto)'] > 0).sum()
             st.metric("Duración Arriesgado", f"{m} meses", f"{m/12:.1f} años")
+            elif modulo == "Neuro-Analisis de Portafolio":
+    st.header("🧠 Oráculo de Comportamiento del Inversor")
+    
+    vol_diaria = rendimientos.std().mean()
+    if vol_diaria > 0.02:
+        st.error("ESTADO: ALTA ANSIEDAD. Tu cartera tiene mucha volatilidad. Considera ajustar tu exposición.")
+    else:
+        st.success("ESTADO: MODO ZEN. Tu cartera mantiene una volatilidad estable.")
+    
+    umbral = st.slider("Límite de caída tolerable en un día (%)", 1, 20, 5)
+    prob_caida = (rendimientos.mean() - (2 * rendimientos.std())).min() * 100
+    
+    st.write(f"Probabilidad estadística de una caída mayor al {umbral}%: {abs(prob_caida):.1f}%")
+    st.info("Nota: Este módulo analiza el riesgo conductual basado en la volatilidad histórica de los activos seleccionados.")
