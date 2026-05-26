@@ -45,6 +45,7 @@ modulo = st.sidebar.selectbox(
         "📈 Frontera Eficiente (Markowitz)", 
         "🎯 Cartera por Retorno Objetivo (Multialternativa)", 
         "💰 Simulador de Retiro Automatizado"
+        "🧠 Neuro-Analisis de Portafolio"
     ]
 )
 
@@ -390,3 +391,49 @@ elif modulo == "💰 Simulador de Retiro Automatizado":
         with c_p3:
             m = (df_grafico['Arriesgado (Riesgo Alto)'] > 0).sum()
             st.metric("Duración Arriesgado", f"{m} meses", f"{m/12:.1f} años")
+
+# =========================================================================
+# MÓDULO: NEURO-ANÁLISIS DE PORTAFOLIO
+# =========================================================================
+elif modulo == "🧠 Neuro-Analisis de Portafolio":
+    st.header("🧠 Oráculo de Comportamiento del Inversor")
+    
+    st.write("Calculando tu nivel de 'Ansiedad de Mercado' basado en la volatilidad de tus activos...")
+    
+    # Calculamos volatilidad promedio de la cartera
+    vol_diaria = rendimientos.std().mean()
+    
+    if vol_diaria > 0.02:
+        st.error("⚠️ ESTADO ACTUAL: ALTA ANSIEDAD. Tu cartera tiene una volatilidad que puede causar reacciones impulsivas.")
+        st.info("💡 Consejo: Considerá reducir la exposición a activos de alta volatilidad (Beta alto) o agregar un activo de refugio.")
+    else:
+        st.success("✅ ESTADO ACTUAL: MODO ZEN. Tu cartera es estable. Mantené la estrategia.")
+        
+    st.markdown("---")
+    umbral_panico = st.slider("¿Cuánto % de caída te hace dudar de tu inversión?", 5, 50, 15)
+    
+    # Simulamos probabilidad de caída técnica
+    prob_caida = (rendimientos.mean() - (2 * rendimientos.std())).min() * 100
+    st.write(f"Según tu histórico, existe una probabilidad técnica de que tu cartera caiga un {abs(prob_caida):.1f}% en un mes crítico.")# =========================================================================
+# MÓDULO: NEURO-ANÁLISIS DE PORTAFOLIO
+# =========================================================================
+elif modulo == "🧠 Neuro-Analisis de Portafolio":
+    st.header("🧠 Oráculo de Comportamiento del Inversor")
+    
+    st.write("Calculando tu nivel de 'Ansiedad de Mercado' basado en la volatilidad de tus activos...")
+    
+    # Calculamos volatilidad promedio de la cartera
+    vol_diaria = rendimientos.std().mean()
+    
+    if vol_diaria > 0.02:
+        st.error("⚠️ ESTADO ACTUAL: ALTA ANSIEDAD. Tu cartera tiene una volatilidad que puede causar reacciones impulsivas.")
+        st.info("💡 Consejo: Considerá reducir la exposición a activos de alta volatilidad (Beta alto) o agregar un activo de refugio.")
+    else:
+        st.success("✅ ESTADO ACTUAL: MODO ZEN. Tu cartera es estable. Mantené la estrategia.")
+        
+    st.markdown("---")
+    umbral_panico = st.slider("¿Cuánto % de caída te hace dudar de tu inversión?", 5, 50, 15)
+    
+    # Simulamos probabilidad de caída técnica
+    prob_caida = (rendimientos.mean() - (2 * rendimientos.std())).min() * 100
+    st.write(f"Según tu histórico, existe una probabilidad técnica de que tu cartera caiga un {abs(prob_caida):.1f}% en un mes crítico.")
