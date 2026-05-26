@@ -348,45 +348,86 @@ elif modulo == "🎯 Cartera por Retorno Objetivo (Multialternativa)":
 # =========================================================================
 # MÓDULO: SIMULADOR DE RETIRO AUTOMÁTICO
 # =========================================================================
-elif modulo == "💰 Simulador de Retiro Automatizado":
+elif modulo == "💰 Simulador de Retiro":
     st.header("💰 Simulador de Supervivencia de Capital")
     
-    c_sim1, c_sim2 = st.columns(2)
-    capital_inicial = c_sim1.number_input("Capital Inicial Disponible (USD):", min_value=1000, value=50000, step=5000)
-    retiro_mensual = c_sim2.number_input("Retiro Mensual Deseado (USD):", min_value=10, value=500, step=50)
+    col1, col2 = st.columns(2)
+    capital_inicial = col1.number_input("Capital Inicial (USD):", value=50000, step=5000)
+    retiro_mensual = col2.number_input("Retiro Mensual deseado (USD):", value=500, step=50)
     
-    if st.button("⏳ Simular Perfiles de Riesgo"):
-        promedio_ret = ret_anuales.mean()
-        promedio_vol = rendimientos.std().mean() * np.sqrt(252)
+    if st.button("⏳ Simular 3 Escenarios de Riesgo"):
+        # Parametros base calculados de tu cartera
+        mu_base = ret_anuales.mean()
+        sigma_base = rendimientos.std().mean() * np.sqrt(252)
         
+        # Definimos los 3 escenarios
         perfiles = {
-            'Conservador (Riesgo Bajo)': {'mu': promedio_ret * 0.6, 'sigma': promedio_vol * 0.5},
-            'Moderado (Riesgo Medio)': {'mu': promedio_ret, 'sigma': promedio_vol},
-            'Arriesgado (Riesgo Alto)': {'mu': promedio_ret * 1.3, 'sigma': promedio_vol * 1.5}
+            'Conservador': {'mu': mu_base * 0.5, 'sigma': sigma_base * 0.4},
+            'Moderado':    {'mu': mu_base,      'sigma': sigma_base},
+            'Arriesgado':  {'mu': mu_base * 1.5, 'sigma': sigma_base * 1.8}
         }
         
-        meses = 180
-        df_grafico = pd.DataFrame(index=range(meses))
+        meses = 180 # 15 años
+        df_sim = pd.DataFrame(index=range(meses))
         
+        # Ejecutar simulaciones
         for nombre, params in perfiles.items():
+            # Simulamos 30 trayectorias por perfil para sacar un promedio
             trayectorias = np.zeros((meses, 30))
             trayectorias[0] = capital_inicial
             for s in range(30):
                 for t in range(1, meses):
-                    rendimiento_mes = np.random.normal(params['mu']/12, params['sigma']/np.sqrt(12))
-                    trayectorias[t, s] = max(0, trayectorias[t-1, s] * (1 + rendimiento_mes) - retiro_mensual)
-            df_grafico[nombre] = np.mean(trayectorias, axis=1)
-            
-        st.line_chart(df_grafico)
+                    rendimiento_mensual = np.random.normal(params['mu']/12, params['sigma']/np.sqrt(12))
+                    trayectorias[t, s] = max(0, trayectorias[t-1, s] * (1 + rendimiento_mensual) - retiro_mensual)
+            df_sim[nombre] = np.mean(trayectorias, axis=1)
         
-        st.write("### 🏁 Diagnóstico de Sostenibilidad")
-        c_p1, c_p2, c_p3 = st.columns(3)
-        with c_p1:
-            m = (df_grafico['Conservador (Riesgo Bajo)'] > 0).sum()
-            st.metric("Duración Conservador", f"{m} meses", f"{m/12:.1f} años")
-        with c_p2:
-            m = (df_grafico['Moderado (Riesgo Medio)'] > 0).sum()
-            st.metric("Duración Moderado", f"{m} meses", f"{m/12:.1f} años")
-        with c_p3:
-            m = (df_grafico['Arriesgado (Riesgo Alto)'] > 0).sum()
-            st.metric("Duración Arriesgado", f"{m} meses", f"{m/12:.1f} años")
+        # Visualización
+        st.line_chart(df_sim)
+        
+        # Diagnóstico de supervivencia
+        st.write("### 🏁 Diagnóstico de Sostenibilidad (Tiempo hasta agotar capital):")
+        c1, c2, c3 = st.columns(3)
+        for i, nombre in enumerate(perfiles.keys()):
+            duracion_meses = (df_sim[nombre] > 0).sum()
+            [c1, c2, c3][i].metric(f"Perfil {nombre}", f"{duracion_meses} meses", f"{duracion_meses/12:.1f} años")elif modulo == "💰 Simulador de Retiro":
+    st.header("💰 Simulador de Supervivencia de Capital")
+    
+    col1, col2 = st.columns(2)
+    capital_inicial = col1.number_input("Capital Inicial (USD):", value=50000, step=5000)
+    retiro_mensual = col2.number_input("Retiro Mensual deseado (USD):", value=500, step=50)
+    
+    if st.button("⏳ Simular 3 Escenarios de Riesgo"):
+        # Parametros base calculados de tu cartera
+        mu_base = ret_anuales.mean()
+        sigma_base = rendimientos.std().mean() * np.sqrt(252)
+        
+        # Definimos los 3 escenarios
+        perfiles = {
+            'Conservador': {'mu': mu_base * 0.5, 'sigma': sigma_base * 0.4},
+            'Moderado':    {'mu': mu_base,      'sigma': sigma_base},
+            'Arriesgado':  {'mu': mu_base * 1.5, 'sigma': sigma_base * 1.8}
+        }
+        
+        meses = 180 # 15 años
+        df_sim = pd.DataFrame(index=range(meses))
+        
+        # Ejecutar simulaciones
+        for nombre, params in perfiles.items():
+            # Simulamos 30 trayectorias por perfil para sacar un promedio
+            trayectorias = np.zeros((meses, 30))
+            trayectorias[0] = capital_inicial
+            for s in range(30):
+                for t in range(1, meses):
+                    rendimiento_mensual = np.random.normal(params['mu']/12, params['sigma']/np.sqrt(12))
+                    trayectorias[t, s] = max(0, trayectorias[t-1, s] * (1 + rendimiento_mensual) - retiro_mensual)
+            df_sim[nombre] = np.mean(trayectorias, axis=1)
+        
+        # Visualización
+        st.line_chart(df_sim)
+        
+        # Diagnóstico de supervivencia
+        st.write("### 🏁 Diagnóstico de Sostenibilidad (Tiempo hasta agotar capital):")
+        c1, c2, c3 = st.columns(3)
+        for i, nombre in enumerate(perfiles.keys()):
+            duracion_meses = (df_sim[nombre] > 0).sum()
+            [c1, c2, c3][i].metric(f"Perfil {nombre}", f"{duracion_meses} meses", f"{duracion_meses/12:.1f} años")
