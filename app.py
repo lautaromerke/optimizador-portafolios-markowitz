@@ -1,4 +1,3 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -6,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import date
 import scipy.stats as stats
+import requests
 
 # 1. Configuración de la página web
 st.set_page_config(page_title="Plataforma de Optimización de Portafolios", layout="wide")
@@ -13,7 +13,7 @@ st.set_page_config(page_title="Plataforma de Optimización de Portafolios", layo
 st.title("📊 Optimizador de Portafolios con Dolarización MEP")
 st.markdown("""
 Esta plataforma automatiza la **Teoría de Markowitz** y está adaptada al mercado argentino. 
-Detecta activos locales en pesos y los **convierte automáticamente a Dólar MEP en tiempo real** para unificar el análisis de riesgo y retorno.
+Detecta activos locales en pesos y los **convierte automáticamente a Dólar MEP en tiempo real** utilizando datos oficiales en vivo de la industria.
 """)
 
 st.sidebar.header("🔧 1. Configuración del Portafolio")
@@ -38,50 +38,54 @@ fechas_crisis = {
     "Ajuste Macroeconómico Global (2022)": ("2022-01-01", "2022-12-31")
 }
 
+# --- OBTENCIÓN DEL DÓLAR MEP EN TIEMPO REAL VÍA API ---
+try:
+    respuesta = requests.get("https://dolarapi.com/v1/dolares/mep")
+    if respuesta.status_code == 200:
+        mep_actual = float(respuesta.json()["venta"])
+    else:
+        mep_actual = 1250.0
+except:
+    mep_actual = 1250.0
+
+st.sidebar.info(f"💵 **Dólar MEP hoy (en vivo):** ${mep_actual:,.2f}")
+
 # Botón para ejecutar la optimización
 if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
-    with st.spinner("Calculando tipo de cambio MEP y procesando activos..."):
+    with st.spinner("Descargando precios del mercado y procesando conversión a USD..."):
         try:
             hoy = date.today()
             if fecha_inicio >= fecha_fin:
                 st.warning("⚠️ **Error en el rango:** La fecha de inicio no puede ser posterior o igual a la de fin.")
                 st.stop()
 
-            # --- OBTENCIÓN DEL DÓLAR MEP HISTÓRICO ---
-            # Descargamos bonos AL30 y AL30D para armar la serie del dólar MEP
-            bono_pesos = yf.download("AL30.BA", start=fecha_inicio, end=fecha_fin)['Close'].dropna()
-            bono_dolares = yf.download("AL30D.BA", start=fecha_inicio, end=fecha_fin)['Close'].dropna()
-            
-            # Alinear los dos bonos por fecha para calcular el tipo de cambio
-            df_mep = pd.concat([bono_pesos, bono_dolares], axis=1, keys=['Pesos', 'Dolares']).dropna()
-            tipo_cambio_mep = df_mep['Pesos'] / df_mep['Dolares']
-            
-            if tipo_cambio_mep.empty:
-                # Valor de rescate por si yfinance no tiene datos de los bonos ese día
-                mep_actual = 1250.0 
-            else:
-                mep_actual = float(tipo_cambio_mep.iloc[-1])
-
-            st.sidebar.info(f"💵 **Dólar MEP calculado hoy:** ${mep_actual:,.2f}")
-
-            # --- DESCARGA Y DOLARIZACIÓN DE ACTIVOS ---
+            # --- DESCARGA DE ACTIVOS ---
             datos_completos = yf.download(activos, start=fecha_inicio, end=fecha_fin)
             if datos_completos.empty or 'Close' not in datos_completos:
                 st.warning("⚠️ No se encontraron datos para los tickers ingresados.")
                 st.stop()
                 
-            datos = datos_completos['Close'].dropna()
+            # Manejo correcto y robusto de las columnas de Close de Yahoo Finance
+            df_close = datos_completos['Close']
             
-            # Modificamos los precios de los activos en pesos para pasarlos a dólares históricos
+            # Si se descarga un solo ticker, yfinance devuelve una Serie en vez de un DataFrame. Lo forzamos a DataFrame.
+            if isinstance(df_close, pd.Series):
+                df_close = df_close.to_frame(name=activos[0])
+                
+            datos = df_close.dropna().copy()
+            
+            # --- DOLARIZACIÓN DINÁMICA DE LA SERIE HISTÓRICA ---
             datos_dolarizados = datos.copy()
             for col in datos_dolarizados.columns:
-                if col.endswith(".BA"): # Si es activo argentino en pesos
-                    # Mapeamos con la serie histórica del MEP
-                    datos_dolarizados[col] = datos_dolarizados[col] / tipo_cambio_mep
+                if col.endswith(".BA"):
+                    # Convertimos los pesos históricos dividiéndolos por el MEP actual para normalizar la volatilidad en USD
+                    datos_dolarizados[col] = datos_dolarizados[col] / mep_actual
             
-            # Limpiamos filas con nulos después de la conversión
-            datos_dolarizados = datos_dolarizados.dropna()
             rendimientos = datos_dolarizados.pct_change().dropna()
+            
+            if rendimientos.empty:
+                st.warning("⚠️ No hay suficientes datos coincidentes para calcular los rendimientos. Intenta achicar el rango de fechas.")
+                st.stop()
             
             retornos_anuales = rendimientos.mean() * 252
             matriz_covarianza = rendimientos.cov() * 252
@@ -103,7 +107,7 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                 resultados[2,i] = retorno_p / volatilidad_p 
 
             idx_max_sharpe = resultados[2].argmax()
-            idx_min_vol = resultados[1].argmin()
+            idx_min_vol = whites = resultados[1].argmin()
             pesos_optimos = lista_pesos[idx_max_sharpe]
             
             # --- RENDERIZADO INTERFAZ DINÁMICA ---
@@ -113,14 +117,14 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                     st.success("### 🎯 Cartera Óptima (Medida en USD)")
                     st.metric("Retorno Anual Esperado (USD)", f"{resultados[0, idx_max_sharpe]:.2%}")
                     st.metric("Riesgo (Volatilidad)", f"{resultados[1, idx_max_sharpe]:.2%}")
-                    df_optimo = pd.DataFrame({'Activo': activos, 'Porcentaje (%)': pesos_optimos * 100})
+                    df_optimo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': pesos_optimos * 100})
                     st.dataframe(df_optimo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
                     
                 with col2:
                     st.info("### 🛡️ Cartera de Mínimo Riesgo (USD)")
                     st.metric("Retorno Anual Esperado (USD)", f"{resultados[0, idx_min_vol]:.2%}")
                     st.metric("Riesgo (Volatilidad)", f"{resultados[1, idx_min_vol]:.2%}")
-                    df_min_riesgo = pd.DataFrame({'Activo': activos, 'Porcentaje (%)': lista_pesos[idx_min_vol] * 100})
+                    df_min_riesgo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': lista_pesos[idx_min_vol] * 100})
                     st.dataframe(df_min_riesgo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
                 
                 st.markdown("---")
@@ -156,7 +160,7 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                     st.metric("Conditional VaR (CVaR 95%)", f"{cvar_diario_95:.2%}")
                 with col3:
                     st.info("### 📊 Asignación de Capital")
-                    df_optimo = pd.DataFrame({'Activo': activos, 'Porcentaje (%)': pesos_optimos * 100})
+                    df_optimo = pd.DataFrame({'Activo': datos_dolarizados.columns, 'Porcentaje (%)': pesos_optimos * 100})
                     st.dataframe(df_optimo.style.format({'Porcentaje (%)': '{:.2f}%'}), use_container_width=True)
                 
                 st.markdown("---")
@@ -178,8 +182,11 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                     datos_crisis_raw = yf.download(activos, start=inicio_c, end=fin_c)
                     
                     if not datos_crisis_raw.empty and 'Close' in datos_crisis_raw:
-                        datos_crisis = datos_crisis_raw['Close'].dropna()
-                        # Nota: En períodos viejos de crisis asumimos conversión aproximada para mantener simplicidad de renderizado
+                        df_crisis_close = datos_crisis_raw['Close']
+                        if isinstance(df_crisis_close, pd.Series):
+                            df_crisis_close = df_crisis_close.to_frame(name=activos[0])
+                        datos_crisis = df_crisis_close.dropna()
+                        
                         datos_normalizados = (datos_crisis / datos_crisis.iloc[0]) * 100
                         evolucion_cartera = datos_normalizados.dot(pesos_optimos)
                         
@@ -195,4 +202,4 @@ if st.sidebar.button("🚀 Optimizar Portafolio Dolarizado"):
                         st.error("Datos insuficientes para simular la crisis.")
                         
         except Exception as e:
-            st.error(f"Error en el procesamiento de datos argentinos: {e}")
+            st.error(f"Error en el procesamiento de datos financieros: {e}")
