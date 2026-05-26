@@ -19,6 +19,7 @@ Esta plataforma integra la **Teoría de Markowitz** con **Optimización por Obje
 st.sidebar.header("🔧 1. Configuración del Portafolio")
 lista_tickers = st.sidebar.text_input("Tickers (ej: AAPL, GGAL.BA, MSFT, YPFD.BA):", "AAPL, GGAL.BA, MSFT, KO")
 fecha_inicio = st.sidebar.date_input("Histórico desde:", pd.to_datetime("2021-01-01"))
+fecha_fin = st.sidebar.date_input("Histórico hasta:", pd.to_datetime("2026-05-25"))
 num_portafolios = st.sidebar.slider("Simulaciones Markowitz:", 5000, 25000, 15000, step=5000)
 
 activos = [x.strip().upper() for x in lista_tickers.split(",")]
@@ -38,53 +39,66 @@ def obtener_mep_en_vivo():
         r = requests.get("https://criptoya.com/api/dolar", timeout=5)
         if r.status_code == 200:
             return float(r.json()["mep"]["al30"]["ci"])
-    except: pass
+    except: 
+        pass
     return 1431.0
 
-mep_actual = st.sidebar.number_input("Dólar MEP ($):", value=obtener_mep_en_vivo())
+mep_sincronizado = obtener_mep_en_vivo()
+
+st.sidebar.header("💵 Tipo de Cambio Automático")
+mep_actual = st.sidebar.number_input("Dólar MEP ($):", value=mep_sincronizado, step=1.0)
 
 # --- FUNCIONES MATEMÁTICAS DE OPTIMIZACIÓN ---
-def get_ret_vol_sharpe(weights, ret_anuales, cov_matrix):
+def calcular_metricas_cartera(weights, ret_anuales, cov_matrix):
     ret = np.sum(ret_anuales * weights)
     vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-    sharpe = ret / vol
+    sharpe = ret / vol if vol > 0 else 0
     return np.array([ret, vol, sharpe])
 
-def check_sum(weights):
-    return np.sum(weights) - 1
+def minimizar_volatilidad(weights, ret_anuales, cov_matrix):
+    return calcular_metricas_cartera(weights, ret_anuales, cov_matrix)[1]
 
-# Optimización para Retorno Objetivo
-def minimize_volatility(weights, ret_anuales, cov_matrix):
-    return get_ret_vol_sharpe(weights, ret_anuales, cov_matrix)[1]
-
+# Botón para ejecutar todo el modelo
 if st.sidebar.button("🚀 Ejecutar Planificación Integral"):
     with st.spinner("Procesando modelos cuantitativos y proyecciones..."):
         try:
-            # --- DESCARGA Y DOLARIZACIÓN ---
-            datos_raw = yf.download(activos, start=fecha_inicio)['Close'].dropna()
-            if isinstance(datos_raw, pd.Series): datos_raw = datos_raw.to_frame(name=activos[0])
+            if fecha_inicio >= fecha_fin:
+                st.warning("⚠️ **Error en el rango:** La fecha de inicio no puede ser posterior o igual a la de fin.")
+                st.stop()
+
+            # --- DESCARGA SEGURO CON MULTI-INDEX HANDLING ---
+            datos_raw = yf.download(activos, start=fecha_inicio, end=fecha_fin)
+            if datos_raw.empty or 'Close' not in datos_raw:
+                st.warning("⚠️ No se encontraron precios de cierre para esos tickers.")
+                st.stop()
             
-            datos_usd = datos_raw.copy()
+            df_close = datos_raw['Close']
+            if isinstance(df_close, pd.Series):
+                df_close = df_close.to_frame(name=activos[0])
+                
+            datos_usd = df_close.dropna().copy()
+            
+            # --- DOLARIZACIÓN DINÁMICA ---
             for col in datos_usd.columns:
-                if col.endswith(".BA"): datos_usd[col] = datos_usd[col] / mep_actual
+                if col.endswith(".BA"):
+                    datos_usd[col] = datos_usd[col] / mep_actual
             
             rendimientos = datos_usd.pct_change().dropna()
+            if rendimientos.empty:
+                st.warning("⚠️ Datos insuficientes tras la limpieza de filas vacías.")
+                st.stop()
+
             ret_anuales = rendimientos.mean() * 252
             cov_matrix = rendimientos.cov() * 252
 
-            # --- MONTECARLO MARKOWITZ ---
+            # --- SIMULACIÓN MONTECARLO MARKOWITZ ---
+            num_activos = len(datos_usd.columns)
             results = np.zeros((3, num_portafolios))
             w_list = []
+            
             for i in range(num_portafolios):
-                w = np.random.random(len(activos))
+                w = np.random.random(num_activos)
                 w /= np.sum(w)
                 w_list.append(w)
-                res = get_ret_vol_sharpe(w, ret_anuales, cov_matrix)
-                results[0,i], results[1,i], results[2,i] = res[0], res[1], res[2]
-
-            idx_sharpe = results[2].argmax()
-            best_w = w_list[idx_sharpe]
-
-            # --- OPTIMIZACIÓN POR OBJETIVO (SCIPY) ---
-            cons = ({'type':'eq', 'fun': check_sum},
-                    {'type':'eq', 'fun': lambda w: np.sum(ret_anuales * w) -
+                res = calcular_metricas_cartera(w, ret_anuales, cov_matrix)
+                results[0, i] = res[0]
